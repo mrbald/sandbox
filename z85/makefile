@@ -1,4 +1,4 @@
-CPPFLAGS:=-isystem /home/bobah/pkg/boost_1_59_0
+CPPFLAGS:=-isystem /path/to/boost/headers
 CXXFLAGS:=-g -Og -std=c++14 -Wall -pedantic -Wno-unused
 
 .PHONY=clean
