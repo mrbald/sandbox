@@ -32,7 +32,8 @@ std::array<uint8_t, std::numeric_limits<uint8_t>::max() + 1> const de_codes = []
     return x;
 }();
 
-constexpr uint32_t cpow(uint32_t base, uint8_t exp)
+constexpr inline
+uint32_t cpow(uint32_t base, uint8_t exp)
 {
     return (exp == 0) ? 1:
         (exp % 2 == 0) ? 
@@ -40,18 +41,35 @@ constexpr uint32_t cpow(uint32_t base, uint8_t exp)
                 base * cpow(base, (exp - 1) / 2) * cpow(base, (exp - 1) / 2);
 }
 
+
+template <class X> inline
+constexpr X sum(X&& x)
+{
+    return std::forward<X>(x);
+}
+
+template <class X, class... Xs> inline
+constexpr 
+std::enable_if_t<sizeof...(Xs), std::common_type_t<X, Xs...>> sum(X&& x, Xs&&... xs)
+{
+    return x + sum(std::forward<Xs>(xs)...);
+}
+
+template <class... Xs>
+void _ (Xs...){}
+
 /* 
  * Encoder implementation code:
  *   uint32_t (native byte order) ==> array<uchar,5>
  */
-template <size_t base, size_t N, size_t... Is>
+template <size_t base, size_t N, size_t... Is> inline
 std::array<uchar_t, sizeof...(Is)> _encode(uint32_t val, std::index_sequence<Is...>)
 {
     std::array<uint8_t, 2> buf{};
-    return { en_codes[buf[(Is + 1) & 1] = uint8_t((val -= buf[Is & 1] * cpow(base, N - Is)) / cpow(base, N - Is - 1))]... };
+    return { en_codes[buf[(Is + 1) % 2] = uint8_t((val -= buf[Is % 2] * cpow(base, N - Is)) / cpow(base, N - Is - 1))]... };
 }
 
-template <size_t base, size_t N>
+template <size_t base, size_t N> inline
 std::array<uchar_t, N> _encode(uint32_t val) { return _encode<base, N>(val, std::make_index_sequence<N>()); }
 
 
@@ -59,16 +77,14 @@ std::array<uchar_t, N> _encode(uint32_t val) { return _encode<base, N>(val, std:
  * Decoder implementation code:
  *   array<uchar,5> ==> uint32_t (native byte order)
  */
-template <size_t base, size_t N, size_t... Is>
-uint32_t _decode(std::array<uchar_t, N> val, std::index_sequence<Is...>)
+template <size_t base, size_t N, size_t... Is> inline
+uint32_t _decode(std::array<uchar_t, N> const& val, std::index_sequence<Is...>)
 {
-    uint32_t dec_val{};
-    auto _ {(dec_val += de_codes[val[Is]] * cpow(base, N - Is - 1))...};
-    return dec_val;
+    return sum(de_codes[val[Is]] * cpow(base, N - Is - 1)...);
 }
 
-template <size_t base, size_t N>
-uint32_t _decode(std::array<uchar_t, N> val) { return _decode<base, N>(val, std::make_index_sequence<N>()); }
+template <size_t base, size_t N> inline
+uint32_t _decode(std::array<uchar_t, N> const& val) { return _decode<base, N>(val, std::make_index_sequence<N>()); }
 
 using boost::endian::big_uint32_t;
 
@@ -76,14 +92,15 @@ using boost::endian::big_uint32_t;
 
 using cursor_t = std::pair<uchar_t const*, uchar_t*>;
 
-template <size_t base, size_t N>
+template <size_t base, size_t N> inline
 cursor_t encode(cursor_t locs)
 {
     auto encoded = _encode<base, N>((big_uint32_t&)(*locs.first));
-    return {locs.first + sizeof(big_uint32_t), std::copy_n(encoded.begin(), N, locs.second)};
+    std::copy_n(encoded.begin(), N, locs.second);
+    return {locs.first + sizeof(big_uint32_t), locs.second + N};
 }
 
-template <size_t base, size_t N>
+template <size_t base, size_t N> inline
 cursor_t decode(cursor_t locs)
 {
     std::array<uchar_t, N> buf;
@@ -95,6 +112,10 @@ cursor_t decode(cursor_t locs)
 } // namespace z85
 
 using namespace z85;
+
+#include <random>
+#include <chrono>
+#include <functional>
 
 // g++ -g -Og -std=c++14 -Wall -pedantic -Wno-unused -isystem /path/to/boost/headers z85.cc -o z85
 int main()
@@ -132,6 +153,37 @@ int main()
     for (auto x : decoded)
         std::cout << std::hex << "0x" << ((unsigned)x) << ' ';
     std::cout << std::endl;
+
+    {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<uchar_t> dis;
+        std::array<uchar_t, (4 * 1ul<<10)> samples {};
+        std::array<uchar_t, (5 * 1ul<<10)> encoded {};
+        std::array<uchar_t, (4 * 1ul<<10)> decoded {};
+
+        std::generate_n(samples.begin(), samples.size(), std::bind(dis, std::mt19937(rd())));
+
+        using clock = std::chrono::steady_clock;
+        auto started = clock::now();
+        auto const iterations = 10000;
+        for (int i = 0; i < iterations; ++i)
+        {
+            cursor_t encoded_locs{samples.data(), encoded.data()};
+            while (encoded_locs.first < samples.data() + samples.size())
+                encoded_locs = encode<85, 5>(encoded_locs);
+
+            //cursor_t decoded_locs{encoded.data(), decoded.data()};
+            //while (decoded_locs.first < encoded.data() + encoded.size())
+            //    decoded_locs = decode<85, 5>(decoded_locs);
+        }
+
+
+        auto stopped = clock::now();
+
+        auto msec = std::chrono::duration_cast<std::chrono::milliseconds>(stopped - started);
+        std::cout << "duration=" << std::dec << msec.count() << "ms, " << ((samples.size() * iterations) / msec.count()) << "b/ms \n";
+    }
 
     return 0;
 }
