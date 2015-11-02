@@ -1,5 +1,10 @@
 #include <iostream>
 
+/*
+ * Author: mrbald@github
+ * License: https://raw.githubusercontent.com/mrbald/sandbox/master/LICENSE
+ */
+
 #include <boost/endian/arithmetic.hpp>
 
 #include <cstdint>
