@@ -173,9 +173,9 @@ int main()
             while (encoded_locs.first < samples.data() + samples.size())
                 encoded_locs = encode<85, 5>(encoded_locs);
 
-            //cursor_t decoded_locs{encoded.data(), decoded.data()};
-            //while (decoded_locs.first < encoded.data() + encoded.size())
-            //    decoded_locs = decode<85, 5>(decoded_locs);
+            cursor_t decoded_locs{encoded.data(), decoded.data()};
+            while (decoded_locs.first < encoded.data() + encoded.size())
+                decoded_locs = decode<85, 5>(decoded_locs);
         }
 
 
