@@ -41,7 +41,6 @@ uint32_t cpow(uint32_t base, uint8_t exp)
                 base * cpow(base, (exp - 1) / 2) * cpow(base, (exp - 1) / 2);
 }
 
-
 template <class X> inline
 constexpr X sum(X&& x)
 {
@@ -65,8 +64,8 @@ void _ (Xs...){}
 template <size_t base, size_t N, size_t... Is> inline
 std::array<uchar_t, sizeof...(Is)> _encode(uint32_t val, std::index_sequence<Is...>)
 {
-    std::array<uint8_t, 2> buf{};
-    return { en_codes[buf[(Is + 1) % 2] = uint8_t((val -= buf[Is % 2] * cpow(base, N - Is)) / cpow(base, N - Is - 1))]... };
+    std::array<uint32_t, 2> buf{};
+    return { en_codes[buf[(Is + 1) % 2] = (val -= buf[Is % 2] * cpow(base, N - Is)) / cpow(base, N - Is - 1)]... };
 }
 
 template <size_t base, size_t N> inline
@@ -164,25 +163,31 @@ int main()
 
         std::generate_n(samples.begin(), samples.size(), std::bind(dis, std::mt19937(rd())));
 
+        auto const iterations = 20000;
+
         using clock = std::chrono::steady_clock;
-        auto started = clock::now();
-        auto const iterations = 10000;
+        auto encoder_started = clock::now();
         for (int i = 0; i < iterations; ++i)
         {
             cursor_t encoded_locs{samples.data(), encoded.data()};
             while (encoded_locs.first < samples.data() + samples.size())
                 encoded_locs = encode<85, 5>(encoded_locs);
+        }
+        auto encoder_stopped = clock::now();
 
+        auto decoder_started = clock::now();
+        for (int i = 0; i < iterations; ++i)
+        {
             cursor_t decoded_locs{encoded.data(), decoded.data()};
             while (decoded_locs.first < encoded.data() + encoded.size())
                 decoded_locs = decode<85, 5>(decoded_locs);
         }
+        auto decoder_stopped = clock::now();
 
-
-        auto stopped = clock::now();
-
-        auto msec = std::chrono::duration_cast<std::chrono::milliseconds>(stopped - started);
-        std::cout << "duration=" << std::dec << msec.count() << "ms, " << ((samples.size() * iterations) / msec.count()) << "b/ms \n";
+        auto encoder_usec = std::chrono::duration_cast<std::chrono::microseconds>(encoder_stopped - encoder_started);
+        auto decoder_usec = std::chrono::duration_cast<std::chrono::microseconds>(decoder_stopped - decoder_started);
+        std::cout << "encoder: " << std::dec << encoder_usec.count() << " us, " << ((samples.size() * iterations) / encoder_usec.count()) << " bytes/us \n";
+        std::cout << "decoder: " << std::dec << decoder_usec.count() << " us, " << ((samples.size() * iterations) / decoder_usec.count()) << " bytes/us \n";
     }
 
     return 0;
