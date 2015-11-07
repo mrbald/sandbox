@@ -6,6 +6,7 @@
  */
 
 #include <boost/endian/arithmetic.hpp>
+#include <boost/integer.hpp>
 
 #include <cstdint>
 #include <utility>
@@ -33,7 +34,7 @@ std::array<uint8_t, std::numeric_limits<uint8_t>::max() + 1> const de_codes = []
 }();
 
 constexpr inline
-uint32_t cpow(uint32_t base, uint8_t exp)
+uint32_t cpow(uint32_t base, uint8_t exp) noexcept
 {
     return (exp == 0) ? 1:
         (exp % 2 == 0) ? 
@@ -42,34 +43,25 @@ uint32_t cpow(uint32_t base, uint8_t exp)
 }
 
 template <class X> inline
-constexpr X sum(X&& x)
-{
-    return std::forward<X>(x);
-}
+constexpr X sum(X&& x) noexcept { return std::forward<X>(x); }
 
 template <class X, class... Xs> inline
 constexpr 
-std::enable_if_t<sizeof...(Xs), std::common_type_t<X, Xs...>> sum(X&& x, Xs&&... xs)
-{
-    return x + sum(std::forward<Xs>(xs)...);
-}
-
-template <class... Xs>
-void _ (Xs...){}
+std::enable_if_t<!!sizeof...(Xs), std::common_type_t<X, Xs...>> sum(X&& x, Xs&&... xs) noexcept { return x + sum(std::forward<Xs>(xs)...); }
 
 /* 
  * Encoder implementation code:
  *   uint32_t (native byte order) ==> array<uchar,5>
  */
 template <size_t base, size_t N, size_t... Is> inline
-std::array<uchar_t, sizeof...(Is)> _encode(uint32_t val, std::index_sequence<Is...>)
+std::array<uchar_t, sizeof...(Is)> _encode(uint32_t val, std::index_sequence<Is...>) noexcept
 {
-    std::array<uint32_t, 2> buf{};
-    return { en_codes[buf[(Is + 1) % 2] = (val -= buf[Is % 2] * cpow(base, N - Is)) / cpow(base, N - Is - 1)]... };
+    uint32_t buf{};
+    return { en_codes[buf = (val -= buf * cpow(base, N - Is)) / cpow(base, N - Is - 1)] ... };
 }
 
 template <size_t base, size_t N> inline
-std::array<uchar_t, N> _encode(uint32_t val) { return _encode<base, N>(val, std::make_index_sequence<N>()); }
+std::array<uchar_t, N> _encode(uint32_t val) noexcept { return _encode<base, N>(val, std::make_index_sequence<N>()); }
 
 
 /* 
@@ -77,13 +69,13 @@ std::array<uchar_t, N> _encode(uint32_t val) { return _encode<base, N>(val, std:
  *   array<uchar,5> ==> uint32_t (native byte order)
  */
 template <size_t base, size_t N, size_t... Is> inline
-uint32_t _decode(std::array<uchar_t, N> const& val, std::index_sequence<Is...>)
+uint32_t _decode(std::array<uchar_t, N> const& val, std::index_sequence<Is...>) noexcept
 {
     return sum(de_codes[val[Is]] * cpow(base, N - Is - 1)...);
 }
 
 template <size_t base, size_t N> inline
-uint32_t _decode(std::array<uchar_t, N> const& val) { return _decode<base, N>(val, std::make_index_sequence<N>()); }
+uint32_t _decode(std::array<uchar_t, N> const& val) noexcept { return _decode<base, N>(val, std::make_index_sequence<N>()); }
 
 using boost::endian::big_uint32_t;
 
@@ -92,7 +84,7 @@ using boost::endian::big_uint32_t;
 using cursor_t = std::pair<uchar_t const*, uchar_t*>;
 
 template <size_t base, size_t N> inline
-cursor_t encode(cursor_t locs)
+cursor_t encode(cursor_t locs) noexcept
 {
     auto encoded = _encode<base, N>((big_uint32_t&)(*locs.first));
     std::copy_n(encoded.begin(), N, locs.second);
@@ -100,7 +92,7 @@ cursor_t encode(cursor_t locs)
 }
 
 template <size_t base, size_t N> inline
-cursor_t decode(cursor_t locs)
+cursor_t decode(cursor_t locs) noexcept
 {
     std::array<uchar_t, N> buf;
     std::copy_n(locs.first, N, buf.begin());
@@ -166,22 +158,27 @@ int main()
         auto const iterations = 20000;
 
         using clock = std::chrono::steady_clock;
-        auto encoder_started = clock::now();
-        for (int i = 0; i < iterations; ++i)
-        {
+
+        auto en_code = [&] {
             cursor_t encoded_locs{samples.data(), encoded.data()};
             while (encoded_locs.first < samples.data() + samples.size())
                 encoded_locs = encode<85, 5>(encoded_locs);
-        }
+        };
+        en_code();
+
+        auto encoder_started = clock::now();
+        for (int i = 0; i < iterations; ++i) en_code();
         auto encoder_stopped = clock::now();
 
-        auto decoder_started = clock::now();
-        for (int i = 0; i < iterations; ++i)
-        {
+        auto de_code = [&]{
             cursor_t decoded_locs{encoded.data(), decoded.data()};
             while (decoded_locs.first < encoded.data() + encoded.size())
                 decoded_locs = decode<85, 5>(decoded_locs);
-        }
+        };
+        de_code();
+
+        auto decoder_started = clock::now();
+        for (int i = 0; i < iterations; ++i) de_code();
         auto decoder_stopped = clock::now();
 
         auto encoder_usec = std::chrono::duration_cast<std::chrono::microseconds>(encoder_stopped - encoder_started);
