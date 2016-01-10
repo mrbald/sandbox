@@ -170,7 +170,7 @@ int main()
     runme<probe2>();
     // [2016-01-10 23:13:14.065785] [0x00007fd486da5740] [info]    67108864 iterations with 24 bytes payload: 397716986.44/sec, 9.55 GB/sec
 
-    // 67108864 iterations with 352 bytes payload: 43938311.34/sec, 15.47 GB/sec
+    runme<probe3>();
     // [2016-01-10 23:13:18.440787] [0x00007fd486da5740] [info]    67108864 iterations with 1056 bytes payload: 23151382.66/sec, 24.45 GB/sec
     return 0;
 }
