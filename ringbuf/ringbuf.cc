@@ -154,7 +154,7 @@ void runme()
     auto const duration = std::chrono::duration<double>(end - start);
     LOG_INF << number_of_iterations << " iterations with " << sizeof(T) << " bytes payload: "<< std::fixed << std::setprecision(2)
             << number_of_iterations / duration.count() << "/sec, "
-            << 1e-9 * sizeof(T) * (number_of_iterations) / duration.count() << " GB/sec";
+            << 1e-9 * sizeof(T) * (number_of_iterations) / duration.count() << " Gb/sec";
 
     for (size_t i = 0; i < number_of_readers; ++i) threads[i].join();
 }
@@ -166,12 +166,12 @@ int main()
     // model name      : Intel(R) Core(TM)2 Quad CPU    Q9650  @ 3.00GHz
 
     runme<probe1>();
-    // [2016-01-10 23:13:13.385782] [0x00007fd486da5740] [info]    67108864 iterations with 16 bytes payload: 459663971.52/sec, 7.35 GB/sec
+    // [2016-01-10 23:13:13.385782] [0x00007fd486da5740] [info]    67108864 iterations with 16 bytes payload: 459663971.52/sec, 7.35 Gb/sec
 
     runme<probe2>();
-    // [2016-01-10 23:13:14.065785] [0x00007fd486da5740] [info]    67108864 iterations with 24 bytes payload: 397716986.44/sec, 9.55 GB/sec
+    // [2016-01-10 23:13:14.065785] [0x00007fd486da5740] [info]    67108864 iterations with 24 bytes payload: 397716986.44/sec, 9.55 Gb/sec
 
     runme<probe3>();
-    // [2016-01-10 23:13:18.440787] [0x00007fd486da5740] [info]    67108864 iterations with 1056 bytes payload: 23151382.66/sec, 24.45 GB/sec
+    // [2016-01-10 23:13:18.440787] [0x00007fd486da5740] [info]    67108864 iterations with 1056 bytes payload: 23151382.66/sec, 24.45 Gb/sec
     return 0;
 }
