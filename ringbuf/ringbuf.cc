@@ -1,5 +1,5 @@
 /*
-   Copyright 2015 Vladimir Lysyy (mrbald@github)
+   Copyright 2016 Vladimir Lysyy (mrbald@github)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@
 
 #include <iomanip>
 
+// Lamport-style Single Producer Single Consumer Queue
 template <class T, size_t C> struct rungbuf
 {
     static size_t constexpr capacity = C;
@@ -65,7 +66,7 @@ public:
     template <class F>
     bool take(F const& f) noexcept(noexcept(f(std::move(std::declval<T>()))))
     {
-        auto const read_pos = read_pos_.load(std::memory_order_relaxed);
+        auto const read_pos = read_pos_.load(std::memory_order_relaxed /* single consumer */);
 
         auto const write_pos = write_pos_.load(std::memory_order_acquire);
         if (read_pos == write_pos)
