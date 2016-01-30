@@ -19,14 +19,18 @@
 #include <atomic>
 #include <type_traits>
 
+#ifndef UFW_L1D_LINE_SIZE
+#   error "macro UFW_L1D_LINE_SIZE not defined"
+#endif
+
 namespace ufw {
 
 template <class T, size_t C> class ringbuf {
     static size_t constexpr capacity = C;
     using node_t = std::aligned_storage_t<sizeof(T), alignof(T)>;
 
-    alignas(64) std::atomic<size_t> write_pos_ {0};
-    alignas(64) std::atomic<size_t> read_pos_ {0};
+    struct stage { alignas(UFW_L1D_LINE_SIZE) std::atomic<size_t> pos_ {0}; };
+    std::array<stage, 2> stages_;
 
     std::array<node_t, capacity> nodes_;
 
@@ -35,38 +39,40 @@ template <class T, size_t C> class ringbuf {
         return pos - C * (pos >= C);
     }
 
-public:
-    template <class... Args>
-    bool put(Args&&... args) noexcept(noexcept(T(std::forward<Args>(args)...))) {
-        auto const write_pos = write_pos_.load(std::memory_order_relaxed /* single producer */);
-        auto const next_write_pos = next(write_pos);
 
-        auto read_pos = read_pos_.load(std::memory_order_acquire);
-        if (next_write_pos == read_pos)
-            return false;
+    template <bool WRITER, class F, class... Args>
+    bool invoke(F&& func, Args&&... args) noexcept {
+        auto& self_pos_ = stages_[WRITER].pos_;
+        auto& party_pos_ = stages_[!WRITER].pos_;
 
-        new(&nodes_[next_write_pos])T(std::forward<Args>(args)...);
+        auto const self_pos = self_pos_.load(std::memory_order_relaxed /* single producer */);
+        auto const next_self_pos = next(self_pos);
 
-        write_pos_.store(next_write_pos, std::memory_order_release);
+        auto const party_pos = party_pos_.load(std::memory_order_acquire);
+
+        auto const the_pos = WRITER ? next_self_pos : self_pos;
+        if (the_pos == party_pos) return false;
+        func(the_pos, std::forward<Args>(args)...);
+
+        self_pos_.store(next_self_pos, std::memory_order_release);
         return true;
     }
 
+public:
+    template <class... Args>
+    bool put(Args&&... args) noexcept {
+        return invoke<true>([&](size_t pos, Args&&... args) noexcept {
+            new(&nodes_[pos])T(std::forward<Args>(args)...);
+        }, std::forward<Args>(args)...);
+    }
+
     template <class F>
-    bool take(F const& f) noexcept(noexcept(f(std::move(std::declval<T>())))) {
-        auto const read_pos = read_pos_.load(std::memory_order_relaxed);
-        auto const next_read_pos = next(read_pos);
-
-        auto const write_pos = write_pos_.load(std::memory_order_acquire);
-        if (read_pos == write_pos)
-            return false;
-
-        T& val = reinterpret_cast<T&>(nodes_[read_pos]);
-        f(std::move(val));
-        val.~T();
-
-        read_pos_.store(next_read_pos, std::memory_order_release);
-
-        return true;
+    bool take(F const& func) noexcept {
+        return invoke<false>([&](size_t pos) noexcept {
+            T& val = reinterpret_cast<T&>(nodes_[pos]);
+            func(std::move(val));
+            val.~T();
+        });
     }
 };
 
