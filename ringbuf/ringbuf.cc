@@ -17,6 +17,7 @@
 #include "logger.h"
 #include "ringbuf.h"
 #include "pipeline.h"
+#include "tsc_clock.h"
 
 #include <chrono>
 #include <atomic>
@@ -30,22 +31,7 @@
 #include <iomanip>
 #include <pthread.h>
 
-// http://stackoverflow.com/a/11485388/267482
-namespace x { struct clock {
-    typedef unsigned long long                 rep;
-    typedef std::ratio<1, 3000000000>          period; // My machine is 3.0 GHz
-    typedef std::chrono::duration<rep, period> duration;
-    typedef std::chrono::time_point<clock>     time_point;
-    static const bool is_steady =              true;
-
-    static time_point now() noexcept
-    {
-        unsigned lo, hi;
-        asm volatile("rdtsc" : "=a" (lo), "=d" (hi));
-        return time_point(duration(static_cast<rep>(hi) << 32 | lo));
-    }
-};}
-using myclock = std::chrono::steady_clock;
+using myclock = ufw::tsc_clock;
 
 void pin_me(size_t cpu_id)
 {
@@ -190,6 +176,61 @@ void run_pipeline()
     LOG_DBG << "writer, observer, reader - returned";
 }
 
+template <bool WRITER, class T, size_t C, size_t N, class R>
+struct ringv_stage {
+    std::atomic<bool>& must_continue;
+    R ring;
+
+    void operator()(auto cpu_id, auto name) noexcept{
+        LOG_DBG << name << " started";
+
+        auto const code = [&](auto* x, size_t n) noexcept {
+            for (auto end = x + n; x < end; ++x)
+                __asm__ __volatile__("" :: "m" (x));
+        };
+
+        pin_me(cpu_id);
+        name_me(name);
+        auto const start = myclock::now();
+        size_t count = 0;
+        for (; must_continue; count += ring->template invokev<WRITER, N>(code));
+
+        auto const end = myclock::now();
+        auto const duration = std::chrono::duration<double>(end - start);
+
+        LOG_INF << name << ": "
+                << count << " cycles, " << sizeof(T) << "B msg, " << C << " in ring, " << N << " in batch: "
+                << std::fixed << std::setprecision(2)
+                << count / duration.count() << "/sec, "
+                << 1e-9 * sizeof(T) * (count) / duration.count() << " GB/sec";
+
+        LOG_DBG << name << " stopped";
+    }
+};
+
+template <class T, size_t C, size_t N = C - 1>
+void run_ringv()
+{
+    using namespace std::literals;
+
+    std::atomic<bool> must_continue {true};
+    auto ring = std::make_shared<ufw::ringbuf<T, C>>();
+
+    std::thread producer(ringv_stage<true, T, C, N, decltype(ring)>{must_continue, ring}, 1, "producer");
+    std::thread consumer(ringv_stage<false, T, C, N, decltype(ring)>{must_continue, ring}, 2, "consumer");
+
+    LOG_DBG << "main thread parked";
+    std::this_thread::sleep_for(5s);
+    LOG_DBG << "main thread resumed";
+
+    must_continue = false;
+
+    if (producer.joinable()) producer.join();
+    if (consumer.joinable()) consumer.join();
+
+    LOG_DBG << "producer, consumer - returned";
+}
+
 template <class T>
 void run_ringbuf()
 {
@@ -258,6 +299,18 @@ int main()
         assert((pipe.invoke_on_mem<1>([](auto&){}) == 7));
     }
 
+    if (true) {
+        ufw::ringbuf<int64_t, 16> ring;
+        bool constexpr const WRITER = true;
+        assert((ring.invokev<!WRITER>([](auto*, size_t){}) == 0));
+        assert((ring.invokev<WRITER>([](auto*, size_t){}) == 15));
+        assert((ring.invokev<!WRITER, 12>([](auto*, size_t){}) == 12));
+        assert((ring.invokev<!WRITER>([](auto*, size_t){}) == 3));
+        assert((ring.invokev<!WRITER>([](auto*, size_t){}) == 0));
+        assert((ring.invokev<WRITER, 7>([](auto*, size_t){}) == 7));
+        assert((ring.invokev<!WRITER>([](auto*, size_t){}) == 7));
+    }
+
     if (false) {
         ufw::pipeline<int64_t, 16, 3> pipe;
         size_t const iterations = 48;
@@ -310,7 +363,19 @@ int main()
         run_pipeline<probe1, 1 << 20>();
     }
 
-    if (false) { 
+    if (true) {
+        run_ringv<probe1, 1 << 5>();
+        run_ringv<probe1, 1 << 10>();
+        run_ringv<probe1, 1 << 14>();
+        run_ringv<probe2, 1 << 5>();
+        run_ringv<probe2, 1 << 10>();
+        run_ringv<probe2, 1 << 14>();
+        run_ringv<probe3, 1 << 5>();
+        run_ringv<probe3, 1 << 10>();
+        run_ringv<probe3, 1 << 14>();
+    }
+
+    if (true) { 
         run_ringbuf<uint64_t>();
         run_ringbuf<probe1>();
         run_ringbuf<probe2>();

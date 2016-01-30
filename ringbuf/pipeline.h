@@ -19,8 +19,8 @@
 #include <atomic>
 #include <type_traits>
 
-#ifndef L1D_LINE_SIZE
-#   error "macro L1D_LINE_SIZE not defined"
+#ifndef UFW_L1D_LINE_SIZE
+#   error "macro UFW_L1D_LINE_SIZE not defined"
 #endif
 
 namespace ufw {
@@ -60,10 +60,12 @@ template <class T, size_t C, size_t N, size_t L = 0> struct pipeline {
 
 private:
     static constexpr size_t CAUGHT_UP_BIT = 1ull << 63;
-    struct stage { alignas(L1D_LINE_SIZE) std::atomic<size_t> pos_ {CAUGHT_UP_BIT}; };
+    struct stage { alignas(UFW_L1D_LINE_SIZE) std::atomic<size_t> pos_ {CAUGHT_UP_BIT}; };
 
     std::array<stage, STG> stages_;
     std::array<node_t, CAP> nodes_;
+
+    size_t static mod_cap(size_t x) noexcept { return x - C * (x >= C); }
 
 public:
 
@@ -95,8 +97,6 @@ public:
         size_t const batch_size_possible = prev_stage_pos - cur_stage_pos + CAP * (prev_stage_pos <= cur_stage_pos);
         size_t const batch_size = std::min(BATCH_SIZE, batch_size_possible);
 
-        static constexpr auto MOD_CAP = [] (auto x) noexcept { return x - CAP * (x >= CAP); };
-
         if (cur_stage_pos + batch_size > CAP) {
             func(&nodes_[cur_stage_pos], CAP - cur_stage_pos, std::forward<Args>(args)...);
             func(&nodes_[0], batch_size - (CAP - cur_stage_pos), std::forward<Args>(args)...);
@@ -112,7 +112,7 @@ public:
                     std::memory_order_acq_rel, std::memory_order_relaxed);
 
         // save unmasked value to release the consumer
-        cur_stage_pos_.store(MOD_CAP(cur_stage_pos + batch_size), std::memory_order_release);
+        cur_stage_pos_.store(mod_cap(cur_stage_pos + batch_size), std::memory_order_release);
 
         return batch_size;
     }
@@ -122,10 +122,10 @@ public:
      * Callback signature: void(node_t&, Args...)
      */
     template <size_t X, size_t BATCH_SIZE = CAP, class Func, class... Args>
-    size_t invoke_on_mem(Func&& f, Args&&... args) noexcept {
-        return invoke_on_mem_vec<X, BATCH_SIZE>([&f] (node_t* beg, size_t len, Args&&... args) noexcept -> decltype(auto) {
+    size_t invoke_on_mem(Func&& func, Args&&... args) noexcept {
+        return invoke_on_mem_vec<X, BATCH_SIZE>([&func] (node_t* beg, size_t len, Args&&... args) noexcept -> decltype(auto) {
             for (auto* ptr = beg, end = beg + len; ptr < end; ++ptr)
-                f(*ptr, std::forward<Args>(args)...);
+                func(*ptr, std::forward<Args>(args)...);
 
         }, std::forward<Args>(args)...);
     }
@@ -137,12 +137,12 @@ public:
      * and destructs after the last stage invocation
      */
     template <size_t X, size_t n = C, class Func, class... Args>
-    size_t invoke_on_obj(Func&& f, Args&&... args) noexcept {
-        return invoke_on_mem<X, n>([&f] (node_t& node, Args&&... args) noexcept -> decltype(auto) {
+    size_t invoke_on_obj(Func&& func, Args&&... args) noexcept {
+        return invoke_on_mem<X, n>([&func] (node_t& node, Args&&... args) noexcept -> decltype(auto) {
             details::lifecycle_tracker<T, node_t,
                     X == FIRST_STAGE_ID && !std::is_trivially_constructible<T>::value,
                     X == LAST_STAGE_ID && !std::is_trivially_destructible<T>::value> _(node);
-            return f(reinterpret_cast<T&>(node), std::forward<Args>(args)...);
+            return func(reinterpret_cast<T&>(node), std::forward<Args>(args)...);
         }, std::forward<Args>(args)...);
     }
 
