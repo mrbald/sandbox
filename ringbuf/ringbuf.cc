@@ -283,10 +283,63 @@ void run_ringbuf()
     for (size_t i = 0; i < number_of_readers; ++i) threads[i].join();
 }
 
+template <size_t C>
+void ping_pong()
+{
+    auto fwd = std::make_shared<ufw::ringbuf<myclock::time_point, C>>();
+    auto bck = std::make_shared<ufw::ringbuf<myclock::time_point, C>>();
+
+    std::atomic<bool> must_continue {true};
+
+    auto code = [&must_continue](auto cpu_id, auto name, auto fwd, auto bck)
+    {
+        myclock::duration duration {};
+        size_t count {};
+
+        pin_me(cpu_id);
+        name_me(name);
+
+        // submit a seed message
+        while (!fwd->template invoke<true>([&](auto& x)
+        {
+            reinterpret_cast<myclock::time_point&>(x) = myclock::now();
+        })) ufw::zzz();
+
+        // ping-pong messages while can
+        while (must_continue)
+        {
+            while (!bck->template invoke<false>([&](auto& x)
+            {
+                duration += myclock::now() - reinterpret_cast<myclock::time_point&>(x);
+                ++count;
+            })) ufw::zzz();
+
+            while (!fwd->template invoke<true>([&](auto& x)
+            {
+                reinterpret_cast<myclock::time_point&>(x) = myclock::now();
+            })) ufw::zzz();
+        }
+
+        LOG_INF << name << ": " << C << " msg-s in the ring, " << (std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count() / double(count)) << " ns/msg";
+    };
+
+    std::thread ping(code, 1, "ping", fwd, bck);
+    std::thread pong(code, 2, "pong", bck, fwd);
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+    must_continue = false;
+
+    if (ping.joinable()) ping.join();
+    if (pong.joinable()) pong.join();
+}
+
 // g++ @flags.txt -o ringbuf ringbuf.cc
 int main()
 {
     SET_LOG_LEVEL(info);
+
+    LOG_INF << "TSC ticks/ps: " << ufw::tsc_clock::scale().count() << std::endl;
 
     if (true) {
         ufw::pipeline<int64_t, 16, 2> pipe;
@@ -355,6 +408,12 @@ int main()
         ins.join();
         upd.join();
         del.join();
+    }
+
+    if (true) {
+        ping_pong<1 << 6>();
+        ping_pong<1 << 15>();
+        ping_pong<1 << 20>();
     }
 
     if (true) {
