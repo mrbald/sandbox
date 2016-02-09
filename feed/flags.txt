@@ -1,0 +1,8 @@
+-DUFW_L1D_LINE_SIZE=64
+-DBOOST_LOG_DYN_LINK -lboost_log
+-O3
+-Wall -Wextra -Werror
+-std=c++14
+-pthread
+-m64 -march=native -mtune=native
+-flto -fwhole-program
