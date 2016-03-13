@@ -15,6 +15,9 @@ struct sorted_circular_buffer
     template <class X>
     void put(X&& x)
     {
+        if (ring.full())
+            ring.set_capacity(ring.capacity() * 2);
+
         // TODO: VL: key extractor, etc.
         typename tree_t::insert_commit_data commit_data;
         auto res = tree.insert_check(x, node_cmp {}, commit_data);
