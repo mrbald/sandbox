@@ -3,6 +3,8 @@
 #include <memory>
 #include <atomic>
 
+namespace ufw {
+
 template <class T>
 struct cow
 {
@@ -37,6 +39,6 @@ struct cow
 
 private:
     std::shared_ptr<T const> ptr_;
-}; // cow
+}; // struct cow
 
 } // namespace ufw
