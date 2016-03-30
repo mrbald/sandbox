@@ -14,13 +14,13 @@ struct cow
     template <class X>
     void store(std::shared_ptr<X> ptr)
     {
-        std::atomic_store_explicit(&ptr_, std::move(std::static_pointer_cast<T const>(ptr)), std::memory_order_release);
+        std::atomic_store_explicit(&ptr_, std::static_pointer_cast<T const>(std::move(ptr)), std::memory_order_release);
     }
 
     template <class X>
     std::shared_ptr<T const> exchange(std::shared_ptr<X> ptr)
     {
-        return std::atomic_exchange_explicit(&ptr_, std::move(std::static_pointer_cast<T const>(ptr)), std::memory_order_acq_rel);
+        return std::atomic_exchange_explicit(&ptr_, std::static_pointer_cast<T const>(std::move(ptr)), std::memory_order_acq_rel);
     }
 
     template <class... Args>
