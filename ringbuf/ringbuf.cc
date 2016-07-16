@@ -131,7 +131,7 @@ struct stage {
         name_me(name);
         auto const start = myclock::now();
         size_t count = 0;
-        for (; must_continue; count += pipe->template invoke_on_obj<X, N>(code));
+        for (; must_continue; count += pipe->template invoke<X, N>(code));
 
         auto const end = myclock::now();
         auto const duration = std::chrono::duration<double>(end - start);
@@ -300,23 +300,23 @@ void ping_pong()
         name_me(name);
 
         // submit a seed message
-        while (!fwd->template invoke<true>([&](auto& x)
+        while (!fwd->template invokev<true, 1>([&](auto* x, auto)
         {
-            reinterpret_cast<myclock::time_point&>(x) = myclock::now();
+            reinterpret_cast<myclock::time_point&>(*x) = myclock::now();
         })) ufw::zzz();
 
         // ping-pong messages while can
         while (must_continue)
         {
-            while (!bck->template invoke<false>([&](auto& x)
+            while (!bck->template invokev<false, 1>([&](auto* x, auto)
             {
-                duration += myclock::now() - reinterpret_cast<myclock::time_point&>(x);
+                duration += myclock::now() - reinterpret_cast<myclock::time_point&>(*x);
                 ++count;
             })) ufw::zzz();
 
-            while (!fwd->template invoke<true>([&](auto& x)
+            while (!fwd->template invokev<true, 1>([&](auto* x, auto)
             {
-                reinterpret_cast<myclock::time_point&>(x) = myclock::now();
+                reinterpret_cast<myclock::time_point&>(*x) = myclock::now();
             })) ufw::zzz();
         }
 
@@ -343,13 +343,13 @@ int main()
 
     if (true) {
         ufw::pipeline<int64_t, 16, 2> pipe;
-        assert((pipe.invoke_on_mem<1>([](auto&){}) == 0));
-        assert((pipe.invoke_on_mem<0>([](auto&){}) == 16));
-        assert((pipe.invoke_on_mem<1, 12>([](auto&){}) == 12));
-        assert((pipe.invoke_on_mem<1>([](auto&){}) == 4));
-        assert((pipe.invoke_on_mem<1>([](auto&){}) == 0));
-        assert((pipe.invoke_on_mem<0, 7>([](auto&){}) == 7));
-        assert((pipe.invoke_on_mem<1>([](auto&){}) == 7));
+        assert((pipe.invokem<1>([](auto&){}) == 0));
+        assert((pipe.invokem<0>([](auto&){}) == 16));
+        assert((pipe.invokem<1, 12>([](auto&){}) == 12));
+        assert((pipe.invokem<1>([](auto&){}) == 4));
+        assert((pipe.invokem<1>([](auto&){}) == 0));
+        assert((pipe.invokem<0, 7>([](auto&){}) == 7));
+        assert((pipe.invokem<1>([](auto&){}) == 7));
     }
 
     if (true) {
@@ -371,7 +371,7 @@ int main()
         std::thread del([&]
         {
             LOG_INF << "del started";
-            for (size_t i = 0; i < iterations; i += pipe.invoke_on_mem<2>([](auto& node)
+            for (size_t i = 0; i < iterations; i += pipe.invokem<2>([](auto& node)
             {
                 int64_t& x = reinterpret_cast<int64_t&>(node);
                 LOG_INF << "del: " << x << "->" << x*7;
@@ -383,7 +383,7 @@ int main()
         std::thread upd([&]
         {
             LOG_INF << "upd started";
-            for (size_t i = 0; i < iterations; i += pipe.invoke_on_mem<1>([](auto& node)
+            for (size_t i = 0; i < iterations; i += pipe.invokem<1>([](auto& node)
             {
                 int64_t& x = reinterpret_cast<int64_t&>(node);
                 if (x%3) { LOG_ERR << "unexpected value:" << x; abort();}
@@ -396,7 +396,7 @@ int main()
         {
             LOG_INF << "ins started";
             size_t counter = 0;
-            for (size_t i = 0; i < iterations; i += pipe.invoke_on_mem<0>([&counter](auto& node)
+            for (size_t i = 0; i < iterations; i += pipe.invokem<0>([&counter](auto& node)
             {
                 int64_t& x = reinterpret_cast<int64_t&>(node);
                 auto const val = (counter += 3);

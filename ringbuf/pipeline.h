@@ -77,7 +77,7 @@ public:
      * Callback signature: void(node_t*, size_t len, Args...)
      */
     template <size_t X, size_t BATCH_SIZE = CAP, class Func, class... Args>
-    size_t invoke_on_mem_vec(Func&& func, Args&&... args) noexcept {
+    size_t invokev(Func&& func, Args&&... args) noexcept {
         static_assert(X >= 0 && X < STG && BATCH_SIZE <= CAP, "");
 
         if (!BATCH_SIZE) return 0;
@@ -122,11 +122,10 @@ public:
      * Callback signature: void(node_t&, Args...)
      */
     template <size_t X, size_t BATCH_SIZE = CAP, class Func, class... Args>
-    size_t invoke_on_mem(Func&& func, Args&&... args) noexcept {
-        return invoke_on_mem_vec<X, BATCH_SIZE>([&func] (node_t* beg, size_t len, Args&&... args) noexcept -> decltype(auto) {
+    size_t invokem(Func&& func, Args&&... args) noexcept {
+        return invokev<X, BATCH_SIZE>([&func] (node_t* beg, size_t len, Args&&... args) noexcept -> decltype(auto) {
             for (auto* ptr = beg, end = beg + len; ptr < end; ++ptr)
                 func(*ptr, std::forward<Args>(args)...);
-
         }, std::forward<Args>(args)...);
     }
 
@@ -137,8 +136,8 @@ public:
      * and destructs after the last stage invocation
      */
     template <size_t X, size_t n = C, class Func, class... Args>
-    size_t invoke_on_obj(Func&& func, Args&&... args) noexcept {
-        return invoke_on_mem<X, n>([&func] (node_t& node, Args&&... args) noexcept -> decltype(auto) {
+    size_t invoke(Func&& func, Args&&... args) noexcept {
+        return invokem<X, n>([&func] (node_t& node, Args&&... args) noexcept -> decltype(auto) {
             details::lifecycle_tracker<T, node_t,
                     X == FIRST_STAGE_ID && !std::is_trivially_constructible<T>::value,
                     X == LAST_STAGE_ID && !std::is_trivially_destructible<T>::value> _(node);

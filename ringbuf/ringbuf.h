@@ -38,8 +38,12 @@ template <class T, size_t CAP> class ringbuf {
     size_t static next(size_t pos) noexcept { ++pos; return mod_cap(pos); }
 
 public:
+
+    /**
+     * Callback signature: void(node_t&, Args...)
+     */
     template <bool WRITER, class Func, class... Args>
-    bool invoke(Func&& func, Args&&... args) noexcept {
+    bool invokem(Func&& func, Args&&... args) noexcept {
         auto& self_pos_ = stages_[WRITER].pos_;
         auto& party_pos_ = stages_[!WRITER].pos_;
 
@@ -47,9 +51,9 @@ public:
         auto const party_pos = party_pos_.load(std::memory_order_acquire);
 
         auto const next_self_pos = next(self_pos);
-        auto const the_pos = WRITER ? next_self_pos : self_pos;
+        auto const cmp_pos = WRITER ? next_self_pos : self_pos;
 
-        if (the_pos == party_pos) return false;
+        if (cmp_pos == party_pos) return false;
         func(nodes_[self_pos], std::forward<Args>(args)...);
 
         self_pos_.store(next_self_pos, std::memory_order_release);
@@ -57,6 +61,9 @@ public:
     }
 
 
+    /**
+     * Callback signature: void(node_t*, size_t len, Args...)
+     */
     template <bool WRITER, size_t BATCH_SIZE = CAP - 1, class Func, class... Args>
     size_t invokev(Func&& func, Args&&... args) noexcept {
         static_assert(BATCH_SIZE <= CAP - 1, "");
@@ -68,9 +75,9 @@ public:
         auto const party_pos = party_pos_.load(std::memory_order_acquire);
 
         auto const next_self_pos = next(self_pos);
-        auto the_pos = WRITER ? next_self_pos : self_pos;
+        auto cmp_pos = WRITER ? next_self_pos : self_pos;
 
-        size_t const batch_size_possible = party_pos - the_pos + CAP * (party_pos < the_pos);
+        size_t const batch_size_possible = party_pos - cmp_pos + CAP * (party_pos < cmp_pos);
         size_t const batch_size = std::min(BATCH_SIZE, batch_size_possible);
 
         if (self_pos + batch_size > CAP) {
@@ -85,21 +92,27 @@ public:
     }
 
 
+    /**
+     * Args are forwarded to the in-place c-tor of T
+     */
     template <class... Args>
     bool put(Args&&... args) noexcept {
-        return invoke<true>([&](node_t& node, Args&&... args) noexcept {
+        return invokem<true>([&](node_t& node, Args&&... args) noexcept {
             new(&node)T(std::forward<Args>(args)...);
         }, std::forward<Args>(args)...);
     }
 
 
-    template <class F>
-    bool take(F const& func) noexcept {
-        return invoke<false>([&](node_t& node) noexcept {
+    /**
+     * Callback signature: void (T&, Args...)
+     */
+    template <class F, class... Args>
+    bool take(F const& func, Args&&... args) noexcept {
+        return invokem<false>([&](node_t& node, Args&&... args) noexcept {
             T& val = reinterpret_cast<T&>(node);
-            func(std::move(val));
+            func(std::move(val), std::forward<Args>(args)...);
             val.~T();
-        });
+        }, std::forward<Args>(args)...);
     }
 };
 

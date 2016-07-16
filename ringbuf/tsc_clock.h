@@ -18,6 +18,9 @@
 
 #include <chrono>
 #include <ratio>
+#include <utility>
+#include <algorithm>
+#include <cmath>
 
 namespace ufw {
 
